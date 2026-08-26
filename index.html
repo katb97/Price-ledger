@@ -52,6 +52,15 @@ const localStore = {
       return null;
     }
   },
+  async delete(key) {
+    try {
+      localStorage.removeItem(key);
+      return { key, deleted: true };
+    } catch (e) {
+      console.error("localStorage delete failed", e);
+      return null;
+    }
+  },
 };
 
 const CurrencyContext = createContext("$");
@@ -97,6 +106,9 @@ const UploadIcon = (p) => <Icon {...p} path={<>
   <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><polyline points="17 8 12 3 7 8" /><line x1="12" y1="3" x2="12" y2="15" />
 </>} />;
 const CheckIcon = (p) => <Icon {...p} path={<polyline points="20 6 9 17 4 12" />} />;
+const TrashIcon = (p) => <Icon {...p} path={<>
+  <path d="M3 6h18" /><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6" /><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+</>} />;
 
 // ---- Design tokens ----
 const COLORS = {
@@ -111,6 +123,8 @@ const COLORS = {
   gold: "#B8923F",
   goodGreen: "#3F6B4A",
 };
+
+const CATEGORIES = ["Fruit", "Vegetables", "Meat & Eggs", "Dairy", "Bakery", "Beverages", "Snacks", "Household", "Personal Care", "Pet", "Other"];
 
 function formatMoney(n, currency = "$") {
   return `${currency}${Number(n).toFixed(2)}`;
@@ -254,6 +268,7 @@ function ImportOverlay({ onImport, onClose, currency }) {
           store: row.store || "",
           weight: row.weight || "",
           quantity: row.quantity !== undefined && row.quantity !== "" ? row.quantity : "",
+          category: row.category || "",
           date: row.date || new Date().toISOString(),
         };
       });
@@ -280,7 +295,7 @@ function ImportOverlay({ onImport, onClose, currency }) {
               Paste a list of items as JSON. Each item needs a name and price; barcode and store are optional.
             </p>
             <textarea value={text} onChange={(e) => setText(e.target.value)}
-              placeholder={'[\n  {"barcode":"652029","name":"Dog Chow Triple P","price":581.25,"store":"Costco","weight":"907g","quantity":1}\n]'}
+              placeholder={'[\n  {"barcode":"652029","name":"Dog Chow Triple P","price":581.25,"store":"Costco","weight":"907g","quantity":1,"category":"Household"}\n]'}
               rows={12}
               style={{ background: COLORS.paper, border: `1.5px solid ${COLORS.gold}`, borderRadius: 8, padding: 12, fontSize: 12.5, fontFamily: "'IBM Plex Mono', monospace", color: COLORS.ink, outline: "none", resize: "vertical" }} />
             {error && (
@@ -304,9 +319,9 @@ function ImportOverlay({ onImport, onClose, currency }) {
                 <div key={i} style={{ display: "flex", justifyContent: "space-between", background: COLORS.paper, borderRadius: 6, padding: "8px 12px" }}>
                   <span style={{ fontFamily: "'Newsreader', Georgia, serif", fontSize: 13.5, color: COLORS.ink }}>
                     {row.name}
-                    {(row.weight || row.quantity) && (
+                    {(row.weight || row.quantity || row.category) && (
                       <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10.5, color: COLORS.inkSoft, marginLeft: 6 }}>
-                        {[row.quantity && `x${row.quantity}`, row.weight].filter(Boolean).join(" · ")}
+                        {[row.category, row.quantity && `x${row.quantity}`, row.weight].filter(Boolean).join(" · ")}
                       </span>
                     )}
                   </span>
@@ -366,12 +381,18 @@ function PriceForm({ initial, onSave, onCancel }) {
   const [store, setStore] = useState("");
   const [weight, setWeight] = useState("");
   const [quantity, setQuantity] = useState("");
+  const [category, setCategory] = useState(initial?.category || "");
   const canSave = name.trim().length > 0 && price !== "" && !isNaN(parseFloat(price));
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
       <label style={fieldLabelStyle}>Item name</label>
       <input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Kirkland Paper Towels" style={fieldStyle} />
+      <label style={fieldLabelStyle}>Category (optional)</label>
+      <select value={category} onChange={(e) => setCategory(e.target.value)} style={{ ...fieldStyle, appearance: "auto" }}>
+        <option value="">No category</option>
+        {CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}
+      </select>
       <label style={fieldLabelStyle}>Price paid</label>
       <div style={{ position: "relative" }}>
         <span style={{ position: "absolute", left: 14, top: "50%", transform: "translateY(-50%)", color: COLORS.inkSoft, fontFamily: "'IBM Plex Mono', monospace" }}>{useCurrency()}</span>
@@ -391,7 +412,7 @@ function PriceForm({ initial, onSave, onCancel }) {
       <input value={store} onChange={(e) => setStore(e.target.value)} placeholder="e.g. Costco" style={fieldStyle} />
       <div style={{ display: "flex", gap: 10, marginTop: 6 }}>
         <button onClick={onCancel} style={{ ...btnStyle, background: "transparent", border: `1.5px solid ${COLORS.inkSoft}`, color: COLORS.ink, flex: 1 }}>Cancel</button>
-        <button disabled={!canSave} onClick={() => canSave && onSave({ name: name.trim(), price: parseFloat(price), store: store.trim(), weight: weight.trim(), quantity: quantity.trim(), date: new Date().toISOString() })}
+        <button disabled={!canSave} onClick={() => canSave && onSave({ name: name.trim(), price: parseFloat(price), store: store.trim(), weight: weight.trim(), quantity: quantity.trim(), category, date: new Date().toISOString() })}
           style={{ ...btnStyle, background: canSave ? COLORS.stamp : COLORS.inkSoft, color: COLORS.paper, flex: 1, opacity: canSave ? 1 : 0.6, cursor: canSave ? "pointer" : "default" }}>
           Save price
         </button>
@@ -404,31 +425,116 @@ const fieldLabelStyle = { fontFamily: "'IBM Plex Mono', monospace", fontSize: 10
 const fieldStyle = { background: "#fff", border: `1.5px solid ${COLORS.paperDark}`, borderRadius: 7, padding: "11px 14px", fontSize: 15, fontFamily: "'Newsreader', Georgia, serif", color: COLORS.ink, outline: "none" };
 const btnStyle = { border: "none", borderRadius: 7, padding: "12px 14px", fontFamily: "'IBM Plex Mono', monospace", fontSize: 13, letterSpacing: "0.03em", cursor: "pointer" };
 
-function ItemDetail({ barcode, item, onBack, onAddPrice }) {
+function EntryEditForm({ entry, currency, onSave, onCancel }) {
+  const [price, setPrice] = useState(String(entry.price));
+  const [weight, setWeight] = useState(entry.weight || "");
+  const [quantity, setQuantity] = useState(entry.quantity || "");
+  const [store, setStore] = useState(entry.store || "");
+  const [date, setDate] = useState(entry.date.slice(0, 10));
+  const canSave = price !== "" && !isNaN(parseFloat(price));
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 8, background: "#fff", border: `1px solid ${COLORS.paperDark}`, borderRadius: 8, padding: 12, margin: "6px 0" }}>
+      <div style={{ display: "flex", gap: 8 }}>
+        <div style={{ position: "relative", flex: 1 }}>
+          <span style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", fontFamily: "'IBM Plex Mono', monospace", color: COLORS.inkSoft, fontSize: 13 }}>{currency}</span>
+          <input inputMode="decimal" value={price} onChange={(e) => setPrice(e.target.value.replace(/[^0-9.]/g, ""))} style={{ ...fieldStyle, padding: "8px 10px 8px 24px", fontSize: 13 }} />
+        </div>
+        <input type="date" value={date} onChange={(e) => setDate(e.target.value)} style={{ ...fieldStyle, padding: "8px 10px", fontSize: 13 }} />
+      </div>
+      <div style={{ display: "flex", gap: 8 }}>
+        <input value={weight} onChange={(e) => setWeight(e.target.value)} placeholder="Weight" style={{ ...fieldStyle, padding: "8px 10px", fontSize: 13, flex: 1 }} />
+        <input value={quantity} onChange={(e) => setQuantity(e.target.value)} placeholder="Quantity" style={{ ...fieldStyle, padding: "8px 10px", fontSize: 13, flex: 1 }} />
+      </div>
+      <input value={store} onChange={(e) => setStore(e.target.value)} placeholder="Store" style={{ ...fieldStyle, padding: "8px 10px", fontSize: 13 }} />
+      <div style={{ display: "flex", gap: 8 }}>
+        <button onClick={onCancel} style={{ ...btnStyle, flex: 1, background: "transparent", border: `1.5px solid ${COLORS.inkSoft}`, color: COLORS.ink, padding: 8 }}>Cancel</button>
+        <button disabled={!canSave} onClick={() => canSave && onSave({ price: parseFloat(price), weight: weight.trim(), quantity: quantity.trim(), store: store.trim(), date: new Date(`${date}T12:00:00`).toISOString() })}
+          style={{ ...btnStyle, flex: 1, background: canSave ? COLORS.stamp : COLORS.inkSoft, color: COLORS.paper, padding: 8, opacity: canSave ? 1 : 0.6 }}>
+          Save
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function DetailsEditForm({ item, onSave, onCancel }) {
+  const [name, setName] = useState(item.name);
+  const [category, setCategory] = useState(item.category || "");
+  const canSave = name.trim().length > 0;
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+      <input value={name} onChange={(e) => setName(e.target.value)} style={{ ...fieldStyle, fontSize: 18, fontWeight: 600 }} />
+      <select value={category} onChange={(e) => setCategory(e.target.value)} style={{ ...fieldStyle, appearance: "auto", fontSize: 13 }}>
+        <option value="">No category</option>
+        {CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}
+      </select>
+      <div style={{ display: "flex", gap: 8 }}>
+        <button onClick={onCancel} style={{ ...btnStyle, flex: 1, background: "transparent", border: `1.5px solid ${COLORS.inkSoft}`, color: COLORS.ink, padding: 8 }}>Cancel</button>
+        <button disabled={!canSave} onClick={() => canSave && onSave({ name: name.trim(), category })}
+          style={{ ...btnStyle, flex: 1, background: canSave ? COLORS.stamp : COLORS.inkSoft, color: COLORS.paper, padding: 8, opacity: canSave ? 1 : 0.6 }}>
+          Save
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function ItemDetail({ barcode, item, onBack, onAddPrice, onDeleteItem, onEditDetails, onEditEntry, onDeleteEntry }) {
   const currency = useCurrency();
   const [adding, setAdding] = useState(!item);
+  const [editingDetails, setEditingDetails] = useState(false);
+  const [editingEntryIdx, setEditingEntryIdx] = useState(null);
+  const [confirmDelete, setConfirmDelete] = useState(false);
   if (!item && !adding) return null;
   const sorted = item ? [...item.prices].sort((a, b) => new Date(b.date) - new Date(a.date)) : [];
   const lowest = item ? Math.min(...item.prices.map((p) => p.price)) : null;
 
   return (
     <div style={{ padding: "18px 18px 32px" }}>
-      <button onClick={onBack} style={{ display: "flex", alignItems: "center", gap: 4, background: "transparent", border: "none", color: COLORS.inkSoft, fontFamily: "'IBM Plex Mono', monospace", fontSize: 12.5, padding: "6px 0 14px", cursor: "pointer" }}>
-        <ChevronLeftIcon size={16} /> Back
-      </button>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <button onClick={onBack} style={{ display: "flex", alignItems: "center", gap: 4, background: "transparent", border: "none", color: COLORS.inkSoft, fontFamily: "'IBM Plex Mono', monospace", fontSize: 12.5, padding: "6px 0 14px", cursor: "pointer" }}>
+          <ChevronLeftIcon size={16} /> Back
+        </button>
+        {item && !adding && !editingDetails && (
+          <button onClick={() => setConfirmDelete(true)} aria-label="Delete item" style={{ background: "transparent", border: "none", color: COLORS.stamp, padding: 6, cursor: "pointer" }}>
+            <TrashIcon size={18} />
+          </button>
+        )}
+      </div>
+
+      {confirmDelete && (
+        <div style={{ background: "#fff", border: `1.5px solid ${COLORS.stamp}`, borderRadius: 8, padding: 14, marginBottom: 16, display: "flex", flexDirection: "column", gap: 10 }}>
+          <p style={{ fontFamily: "'Newsreader', Georgia, serif", fontSize: 14, color: COLORS.ink, margin: 0 }}>Delete "{item.name}" and its whole price history? This can't be undone.</p>
+          <div style={{ display: "flex", gap: 8 }}>
+            <button onClick={() => setConfirmDelete(false)} style={{ ...btnStyle, flex: 1, background: "transparent", border: `1.5px solid ${COLORS.inkSoft}`, color: COLORS.ink, padding: 8 }}>Cancel</button>
+            <button onClick={() => onDeleteItem(barcode)} style={{ ...btnStyle, flex: 1, background: COLORS.stamp, color: COLORS.paper, padding: 8 }}>Delete</button>
+          </div>
+        </div>
+      )}
 
       {item && !adding && (
         <>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
-            <div>
-              <h2 style={{ fontFamily: "'Newsreader', Georgia, serif", fontSize: 22, fontWeight: 600, color: COLORS.ink, margin: 0 }}>{item.name}</h2>
-              <p style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 11.5, color: COLORS.inkSoft, marginTop: 4, letterSpacing: "0.04em" }}>#{barcode}</p>
+          {editingDetails ? (
+            <DetailsEditForm item={item} onCancel={() => setEditingDetails(false)} onSave={(fields) => { onEditDetails(barcode, fields); setEditingDetails(false); }} />
+          ) : (
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+              <div>
+                <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                  <h2 style={{ fontFamily: "'Newsreader', Georgia, serif", fontSize: 22, fontWeight: 600, color: COLORS.ink, margin: 0 }}>{item.name}</h2>
+                  <button onClick={() => setEditingDetails(true)} aria-label="Edit item details" style={{ background: "transparent", border: "none", color: COLORS.inkSoft, padding: 2, cursor: "pointer" }}>
+                    <PencilIcon size={13} />
+                  </button>
+                </div>
+                <p style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 11.5, color: COLORS.inkSoft, marginTop: 4, letterSpacing: "0.04em" }}>#{barcode}{item.category && ` · ${item.category}`}</p>
+              </div>
+              <div style={{ textAlign: "right" }}>
+                <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 26, fontWeight: 600, color: COLORS.stamp }}>{formatMoney(sorted[0].price, currency)}</div>
+                <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, color: COLORS.inkSoft }}>last paid · lowest {formatMoney(lowest, currency)}</div>
+              </div>
             </div>
-            <div style={{ textAlign: "right" }}>
-              <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 26, fontWeight: 600, color: COLORS.stamp }}>{formatMoney(sorted[0].price, currency)}</div>
-              <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, color: COLORS.inkSoft }}>last paid · lowest {formatMoney(lowest, currency)}</div>
-            </div>
-          </div>
+          )}
 
           <button onClick={() => setAdding(true)} style={{ ...btnStyle, background: COLORS.cover, color: COLORS.paper, width: "100%", marginTop: 18, display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
             <PlusIcon size={15} /> Log a new price
@@ -436,20 +542,38 @@ function ItemDetail({ barcode, item, onBack, onAddPrice }) {
 
           <p style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10.5, letterSpacing: "0.1em", textTransform: "uppercase", color: COLORS.inkSoft, marginTop: 26, marginBottom: 10 }}>History ({item.prices.length})</p>
           <div style={{ display: "flex", flexDirection: "column" }}>
-            {sorted.map((p, i) => (
-              <div key={i} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 0", borderTop: `1px dashed ${COLORS.paperDark}` }}>
-                <div>
-                  <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 15, color: COLORS.ink, fontWeight: 600 }}>{formatMoney(p.price, currency)}</div>
-                  <div style={{ display: "flex", gap: 8, marginTop: 2, color: COLORS.inkSoft, fontSize: 11, fontFamily: "'Newsreader', Georgia, serif", flexWrap: "wrap" }}>
-                    <span style={{ display: "flex", alignItems: "center", gap: 3 }}><CalendarIcon size={11} /> {formatDate(p.date)}</span>
-                    {p.store && <span style={{ display: "flex", alignItems: "center", gap: 3 }}><StoreIcon size={11} /> {p.store}</span>}
-                    {p.quantity && <span>· x{p.quantity}</span>}
-                    {p.weight && <span>· {p.weight}</span>}
+            {sorted.map((p) => {
+              const originalIdx = item.prices.indexOf(p);
+              if (editingEntryIdx === originalIdx) {
+                return (
+                  <EntryEditForm key={originalIdx} entry={p} currency={currency}
+                    onCancel={() => setEditingEntryIdx(null)}
+                    onSave={(updated) => { onEditEntry(barcode, originalIdx, updated); setEditingEntryIdx(null); }} />
+                );
+              }
+              return (
+                <div key={originalIdx} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 0", borderTop: `1px dashed ${COLORS.paperDark}` }}>
+                  <div>
+                    <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 15, color: COLORS.ink, fontWeight: 600 }}>{formatMoney(p.price, currency)}</div>
+                    <div style={{ display: "flex", gap: 8, marginTop: 2, color: COLORS.inkSoft, fontSize: 11, fontFamily: "'Newsreader', Georgia, serif", flexWrap: "wrap" }}>
+                      <span style={{ display: "flex", alignItems: "center", gap: 3 }}><CalendarIcon size={11} /> {formatDate(p.date)}</span>
+                      {p.store && <span style={{ display: "flex", alignItems: "center", gap: 3 }}><StoreIcon size={11} /> {p.store}</span>}
+                      {p.quantity && <span>· x{p.quantity}</span>}
+                      {p.weight && <span>· {p.weight}</span>}
+                    </div>
+                  </div>
+                  <div style={{ display: "flex", alignItems: "center", gap: 10, flexShrink: 0 }}>
+                    {p.price === lowest && <TagIcon size={15} color={COLORS.goodGreen} />}
+                    <button onClick={() => setEditingEntryIdx(originalIdx)} aria-label="Edit this price" style={{ background: "transparent", border: "none", color: COLORS.inkSoft, padding: 3, cursor: "pointer" }}>
+                      <PencilIcon size={13} />
+                    </button>
+                    <button onClick={() => onDeleteEntry(barcode, originalIdx)} aria-label="Delete this price" style={{ background: "transparent", border: "none", color: COLORS.stamp, padding: 3, cursor: "pointer" }}>
+                      <TrashIcon size={13} />
+                    </button>
                   </div>
                 </div>
-                {p.price === lowest && <TagIcon size={15} color={COLORS.goodGreen} />}
-              </div>
-            ))}
+              );
+            })}
           </div>
         </>
       )}
@@ -473,6 +597,10 @@ function PriceLedger() {
   const [currency, setCurrency] = useState("$");
   const [editingCurrency, setEditingCurrency] = useState(false);
   const [importing, setImporting] = useState(false);
+  const [categoryFilter, setCategoryFilter] = useState(null);
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
+  const [showDateFilter, setShowDateFilter] = useState(false);
 
   useEffect(() => {
     async function init() {
@@ -508,12 +636,13 @@ function PriceLedger() {
     setSelectedBarcode(barcode);
   }, []);
 
-  const handleAddPrice = async (barcode, entry) => {
+  const handleAddPrice = async (barcode, rawEntry) => {
+    const { category, ...entry } = rawEntry;
     setItems((prev) => {
       const existing = prev[barcode];
       const item = existing
-        ? { ...existing, name: entry.name || existing.name, prices: [...existing.prices, entry] }
-        : { barcode, name: entry.name, prices: [entry] };
+        ? { ...existing, name: entry.name || existing.name, category: category || existing.category, prices: [...existing.prices, entry] }
+        : { barcode, name: entry.name, category: category || "", prices: [entry] };
       const updated = { ...prev, [barcode]: item };
       saveItem(item);
       if (!existing) {
@@ -521,6 +650,48 @@ function PriceLedger() {
       }
       return updated;
     });
+  };
+
+  const handleDeleteItem = async (barcode) => {
+    setItems((prev) => {
+      const updated = { ...prev };
+      delete updated[barcode];
+      return updated;
+    });
+    try { await localStore.delete(`item:${barcode}`); } catch (e) { console.error("Failed deleting item", e); }
+    const idx = await loadIndex();
+    await saveIndex(idx.filter((b) => b !== barcode));
+    setSelectedBarcode(null);
+  };
+
+  const handleEditDetails = async (barcode, fields) => {
+    const existing = items[barcode];
+    if (!existing) return;
+    const item = { ...existing, ...fields };
+    setItems((prev) => ({ ...prev, [barcode]: item }));
+    saveItem(item);
+  };
+
+  const handleEditEntry = async (barcode, index, updatedFields) => {
+    const existing = items[barcode];
+    if (!existing) return;
+    const prices = existing.prices.map((p, i) => (i === index ? { ...p, ...updatedFields } : p));
+    const item = { ...existing, prices };
+    setItems((prev) => ({ ...prev, [barcode]: item }));
+    saveItem(item);
+  };
+
+  const handleDeleteEntry = async (barcode, index) => {
+    const existing = items[barcode];
+    if (!existing) return;
+    const remaining = existing.prices.filter((_, i) => i !== index);
+    if (remaining.length === 0) {
+      await handleDeleteItem(barcode);
+      return;
+    }
+    const item = { ...existing, prices: remaining };
+    setItems((prev) => ({ ...prev, [barcode]: item }));
+    saveItem(item);
   };
 
   const handleImport = async (rows) => {
@@ -531,9 +702,9 @@ function PriceLedger() {
         const entry = { price: row.price, store: row.store, date: row.date, weight: row.weight, quantity: row.quantity };
         const existing = updated[row.barcode];
         if (existing) {
-          updated[row.barcode] = { ...existing, name: row.name || existing.name, prices: [...existing.prices, entry] };
+          updated[row.barcode] = { ...existing, name: row.name || existing.name, category: row.category || existing.category, prices: [...existing.prices, entry] };
         } else {
-          updated[row.barcode] = { barcode: row.barcode, name: row.name, prices: [entry] };
+          updated[row.barcode] = { barcode: row.barcode, name: row.name, category: row.category || "", prices: [entry] };
           newBarcodes.push(row.barcode);
         }
       }
@@ -551,7 +722,19 @@ function PriceLedger() {
 
   const list = Object.values(items)
     .filter((it) => it.name.toLowerCase().includes(query.toLowerCase()))
+    .filter((it) => !categoryFilter || it.category === categoryFilter)
+    .filter((it) => {
+      if (!dateFrom && !dateTo) return true;
+      return it.prices.some((p) => {
+        const d = p.date.slice(0, 10);
+        if (dateFrom && d < dateFrom) return false;
+        if (dateTo && d > dateTo) return false;
+        return true;
+      });
+    })
     .sort((a, b) => new Date(b.prices[b.prices.length - 1].date) - new Date(a.prices[a.prices.length - 1].date));
+
+  const usedCategories = Array.from(new Set(Object.values(items).map((it) => it.category).filter(Boolean)));
 
   const selectedItem = selectedBarcode ? items[selectedBarcode] : null;
 
@@ -582,7 +765,8 @@ function PriceLedger() {
         </div>
 
         {selectedBarcode ? (
-          <ItemDetail barcode={selectedBarcode} item={selectedItem} onBack={() => setSelectedBarcode(null)} onAddPrice={(entry) => handleAddPrice(selectedBarcode, entry)} />
+          <ItemDetail barcode={selectedBarcode} item={selectedItem} onBack={() => setSelectedBarcode(null)} onAddPrice={(entry) => handleAddPrice(selectedBarcode, entry)}
+            onDeleteItem={handleDeleteItem} onEditDetails={handleEditDetails} onEditEntry={handleEditEntry} onDeleteEntry={handleDeleteEntry} />
         ) : (
           <div style={{ padding: "16px 18px 100px" }}>
             <div style={{ display: "flex", gap: 10, marginBottom: 18 }}>
@@ -593,7 +777,41 @@ function PriceLedger() {
               <button onClick={() => setImporting(true)} aria-label="Import items" style={{ background: COLORS.cover, border: "none", borderRadius: 7, padding: "0 14px", cursor: "pointer", display: "flex", alignItems: "center" }}>
                 <UploadIcon size={17} color={COLORS.paper} />
               </button>
+              <button onClick={() => setShowDateFilter((v) => !v)} aria-label="Filter by date" style={{ background: dateFrom || dateTo ? COLORS.stamp : COLORS.cover, border: "none", borderRadius: 7, padding: "0 14px", cursor: "pointer", display: "flex", alignItems: "center" }}>
+                <CalendarIcon size={17} color={COLORS.paper} />
+              </button>
             </div>
+
+            {showDateFilter && (
+              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 14, background: "#fff", border: `1px solid ${COLORS.paperDark}`, borderRadius: 8, padding: "10px 12px" }}>
+                <div style={{ display: "flex", flexDirection: "column", gap: 3, flex: 1 }}>
+                  <span style={{ ...fieldLabelStyle, marginBottom: 0 }}>From</span>
+                  <input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} style={{ ...fieldStyle, padding: "6px 8px", fontSize: 13 }} />
+                </div>
+                <div style={{ display: "flex", flexDirection: "column", gap: 3, flex: 1 }}>
+                  <span style={{ ...fieldLabelStyle, marginBottom: 0 }}>To</span>
+                  <input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} style={{ ...fieldStyle, padding: "6px 8px", fontSize: 13 }} />
+                </div>
+                {(dateFrom || dateTo) && (
+                  <button onClick={() => { setDateFrom(""); setDateTo(""); }} style={{ background: "transparent", border: "none", color: COLORS.inkSoft, cursor: "pointer", padding: 4, alignSelf: "flex-end" }} aria-label="Clear date filter">
+                    <XIcon size={16} />
+                  </button>
+                )}
+              </div>
+            )}
+
+            {usedCategories.length > 0 && (
+              <div style={{ display: "flex", gap: 8, overflowX: "auto", paddingBottom: 4, marginBottom: 14, WebkitOverflowScrolling: "touch" }}>
+                <button onClick={() => setCategoryFilter(null)} style={{ flexShrink: 0, background: categoryFilter === null ? COLORS.cover : "#fff", color: categoryFilter === null ? COLORS.paper : COLORS.inkSoft, border: `1px solid ${categoryFilter === null ? COLORS.cover : COLORS.paperDark}`, borderRadius: 20, padding: "6px 13px", fontFamily: "'IBM Plex Mono', monospace", fontSize: 11.5, cursor: "pointer", whiteSpace: "nowrap" }}>
+                  All
+                </button>
+                {usedCategories.map((c) => (
+                  <button key={c} onClick={() => setCategoryFilter(categoryFilter === c ? null : c)} style={{ flexShrink: 0, background: categoryFilter === c ? COLORS.cover : "#fff", color: categoryFilter === c ? COLORS.paper : COLORS.inkSoft, border: `1px solid ${categoryFilter === c ? COLORS.cover : COLORS.paperDark}`, borderRadius: 20, padding: "6px 13px", fontFamily: "'IBM Plex Mono', monospace", fontSize: 11.5, cursor: "pointer", whiteSpace: "nowrap" }}>
+                    {c}
+                  </button>
+                ))}
+              </div>
+            )}
 
             {loading && <p style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 12, color: COLORS.inkSoft, textAlign: "center", marginTop: 40 }}>opening the ledger…</p>}
 
@@ -601,7 +819,7 @@ function PriceLedger() {
               <div style={{ textAlign: "center", marginTop: 60, padding: "0 24px" }}>
                 <TagIcon size={28} color={COLORS.paperDark} style={{ marginBottom: 10 }} />
                 <p style={{ fontFamily: "'Newsreader', Georgia, serif", fontSize: 15, color: COLORS.inkSoft, fontStyle: "italic" }}>
-                  {query ? "Nothing matches that search." : "No items logged yet. Scan or add your first price to start the ledger."}
+                  {query || categoryFilter || dateFrom || dateTo ? "Nothing matches those filters." : "No items logged yet. Scan or add your first price to start the ledger."}
                 </p>
               </div>
             )}
@@ -614,7 +832,14 @@ function PriceLedger() {
                     style={{ display: "flex", alignItems: "center", justifyContent: "space-between", textAlign: "left", background: "#fff", border: `1px solid ${COLORS.paperDark}`, borderLeft: `4px solid ${COLORS.cover}`, borderRadius: 8, padding: "13px 14px", cursor: "pointer" }}>
                     <div style={{ minWidth: 0 }}>
                       <div style={{ fontFamily: "'Newsreader', Georgia, serif", fontSize: 15.5, fontWeight: 600, color: COLORS.ink, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{item.name}</div>
-                      <div style={{ marginTop: 3 }}><TrendBadge prices={item.prices} /></div>
+                      <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 3, flexWrap: "wrap" }}>
+                        {item.category && (
+                          <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 9.5, letterSpacing: "0.04em", textTransform: "uppercase", color: COLORS.gold, border: `1px solid ${COLORS.gold}`, borderRadius: 10, padding: "1px 7px" }}>
+                            {item.category}
+                          </span>
+                        )}
+                        <TrendBadge prices={item.prices} />
+                      </div>
                     </div>
                     <div style={{ display: "flex", alignItems: "center", gap: 12, flexShrink: 0, marginLeft: 10 }}>
                       <Sparkline prices={item.prices} />
